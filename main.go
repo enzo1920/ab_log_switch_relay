@@ -3,6 +3,7 @@ package main
 import (
     "fmt"
     "log"
+    "time"
     "net/http"
     "io/ioutil"
     "database/sql"
@@ -16,31 +17,90 @@ const (
 )
 
 
+
+// структура для реле, заполняем состояниями
+type LightRelays struct{
+    R_id int
+    R_ip string
+    R_state int
+}
+
+
 func main() {
+        relaySwitch()
+        //relaySwitchBytime()
+}
+
+
+
+func relaySwitch(){
         var light_effect float64 = 50.0
-        //fmt.Println(light)
+        getsum:= getLightsum()
+        getstate:= getRelaystate()
+        for _, ls := range getstate {
+                if getsum <= light_effect && ls.R_state==0 {
+                         sendGet("http://admin:admin@"+ls.R_ip+"/protect/rb0n.cgi")
+                         fmt.Println("Relay ON")
+                }else if getsum>=light_effect && ls.R_state==1 {
+                         sendGet("http://admin:admin@"+ls.R_ip+"/protect/rb0f.cgi") 
+                         fmt.Println("Relay OFF")
+                }
+
+        }
+
+        fmt.Println(getsum)
+}
+
+
+
+/*
+func relaySwitch(){
+        var light_effect float64 = 50.0
         getsum:= getLightsum()
         getstate:= getRelaystate()
         //если из базы вернулся ноль, то ничего не делаем
         if getsum == 0{
            fmt.Println("return sum = 0. Wrong sum query.Check db and inserter service!!! ")
         }else{
-              if getsum <= light_effect && getstate==0 {
-                 sendGet("http://admin:admin@192.168.71.117/protect/rb0n.cgi")
-                 fmt.Println("Relay ON")
-              }else if getsum>=light_effect && getstate==1 {
-                 sendGet("http://admin:admin@192.168.71.117/protect/rb0f.cgi") 
-                 fmt.Println("Relay OFF")
-              }
+               for _, ls := range getstate {
+                   if getsum <= light_effect && ls.R_state==0 {
+                         sendGet("http://admin:admin@"+ls.R_ip+"/protect/rb0n.cgi")
+                         fmt.Println("Relay ON")
+                   }else if getsum>=light_effect && ls.R_state==1 {
+                         sendGet("http://admin:admin@"+ls.R_ip+"/protect/rb0f.cgi") 
+                         fmt.Println("Relay OFF")
+                   }
 
+               }
         }
 
-
-
-
         fmt.Println(getsum)
-
 }
+*/
+
+func relaySwitchBytime(){
+        //var light_effect float64 = 50.0
+        //getsum:= getLightsum()
+        night := 22
+        day := 4
+        now :=time.Now()
+        hour :=now.Hour()
+        getstate:= getRelaystate()
+        for _, ls := range getstate {
+                if hour >= night && ls.R_state==0 {
+                         sendGet("http://admin:admin@"+ls.R_ip+"/protect/rb0n.cgi")
+                         fmt.Println("Relay ON")
+                   }else if hour >= day && hour < night && ls.R_state==1 {
+                         sendGet("http://admin:admin@"+ls.R_ip+"/protect/rb0f.cgi") 
+                         fmt.Println("Relay OFF")
+                   }
+
+               }
+        fmt.Println(now.Hour(),day, night)
+}
+
+
+
 
 //получаем сумму значений датчика за последнии 15 мин
 func getLightsum() float64 {
@@ -67,27 +127,38 @@ func getLightsum() float64 {
 
 
 
+
 //получаем состояние реле
-func getRelaystate() int {
+func getRelaystate() []LightRelays {
         dbinfo := fmt.Sprintf("user=%s password=%s dbname=%s sslmode=disable",
             DB_USER, DB_PASSWORD, DB_NAME)
         db, err := sql.Open("postgres", dbinfo)
         checkErr(err)
         defer db.Close()
 
-	row := db.QueryRow("SELECT COALESCE(r_state,0)  FROM relays WHERE r_id=1")
-	if err != nil {
-		log.Fatal(err)
-	}
-	//defer row.Close()
-	var r_state int
-	if err := row.Scan(&r_state); err != nil {
-	     // Check for a scan error.
-	     // Query rows will be closed with defer.
-		log.Fatal(err)
-       }
 
-	return r_state
+
+        rows, err := db.Query("SELECT r_id, r_ip, r_state FROM relays WHERE r_type=1  ORDER BY r_id asc")
+        if err != nil {
+             log.Fatal(err)
+        }
+        defer rows.Close()
+
+        lightrelays := []LightRelays{}
+
+        for rows.Next(){
+             lr := LightRelays{}
+             err := rows.Scan(&lr.R_id, &lr.R_ip, &lr.R_state)
+             if err != nil{
+                  fmt.Println(err)
+                  continue
+             }
+             lightrelays = append(lightrelays, lr)
+        }
+
+
+    return lightrelays
+
 }
 
 
